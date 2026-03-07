@@ -5,23 +5,31 @@ import yfinance as yf
 from statsmodels.tsa.stattools import adfuller
 
 # ── 1. Download Data ──────────────────────────────────────────────────────────
-data = yf.download("AAPL", period="60d", interval="5m")
+data = yf.download("AAPL", period="1mo", interval="5m", auto_adjust=True)
+
+print("Columns:", data.columns.tolist())
+print("Index type:", type(data.index[0]))
+print("Index tz:", data.index.tz)
+print("Shape:", data.shape)
+print(data.head(3))
+
+# Fix 1: flatten multi-level columns yfinance sometimes returns
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.get_level_values(0)
+
+# Fix 2: strip timezone so between_time works
 data.index = pd.to_datetime(data.index)
+if data.index.tz is not None:
+    data.index = data.index.tz_localize(None)
+
 data = data.between_time("09:30", "16:00")
-
-print(type(data.index[0]))
-print(data.index[0])
-print(data.index.date[:5])
-
 data["date"] = data.index.date
-print(data["date"].nunique(), "sessions found")
 
-for date, session in data.groupby("date"):
-    print(date, len(session), "bars")
-    break
+print(f"Total bars: {len(data)}")
+print(f"Sessions found: {data['date'].nunique()}")
 
 # ── 2. Rolling ADF Function ───────────────────────────────────────────────────
-def rolling_adf(prices, window=60):
+def rolling_adf(prices, window=15):
     pvalues = np.full(len(prices), np.nan)
     for t in range(window, len(prices)):
         window_slice = prices[t-window:t]
@@ -29,7 +37,7 @@ def rolling_adf(prices, window=60):
         pvalues[t] = result[1]
     return pvalues
 
-# ── 3. Classifier Function ────────────────────────────────────────────────────
+# ── 3. Classifier ─────────────────────────────────────────────────────────────
 def classify(pvalue):
     if np.isnan(pvalue):
         return "NOT_ENOUGH_DATA"
@@ -39,25 +47,26 @@ def classify(pvalue):
         return "RANDOM_WALK"
 
 # ── 4. Run Per Session ────────────────────────────────────────────────────────
-data["date"] = data.index.date
 all_pvalues = []
 all_prices = []
 
 for date, session in data.groupby("date"):
-    session_prices = session["Close"].dropna().values
-    if len(session_prices) < 60:
+    session_prices = session["Close"].dropna().values.flatten()
+    if len(session_prices) < 15:
         continue
-    pvalues = rolling_adf(session_prices, window=60)
+    pvalues = rolling_adf(session_prices, window=15)
     all_pvalues.extend(pvalues)
     all_prices.extend(session_prices)
 
-all_pvalues = np.array(all_pvalues)
-all_prices = np.array(all_prices)
+all_pvalues = np.array(all_pvalues, dtype=float)
+all_prices = np.array(all_prices, dtype=float)
 
-# ── 5. Count How Often Gate Is Open ──────────────────────────────────────────
+print(f"Total bars processed: {len(all_prices)}")
+
+# ── 5. Gate Stats ─────────────────────────────────────────────────────────────
 valid = ~np.isnan(all_pvalues)
 gate_open_pct = np.mean(all_pvalues[valid] < 0.05) * 100
-print(f"Gate OPEN {gate_open_pct:.1f}% of bars")
+print(f"Gate OPEN  {gate_open_pct:.1f}% of bars")
 print(f"Gate CLOSED {100 - gate_open_pct:.1f}% of bars")
 
 # ── 6. Plot ───────────────────────────────────────────────────────────────────
