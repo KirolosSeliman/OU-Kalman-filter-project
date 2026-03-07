@@ -1,1 +1,18 @@
+
+
+this link presents the relation ship between the OU process and the Kalman filter, how they are fused to make an algo
 https://arxiv.org/html/2407.06745v1#S1
+
+
+this link presents a page fully dedicated on the Kalman filter, it's focused on theory in general, not the finance part
+https://kalmanfilter.net/
+
+
+Quant guild videos on the Kalman filter and the mean reverse strategy with the Kalman filter
+https://www.youtube.com/watch?v=BuPil7nXvMU
+
+
+the matlab course on the Kalman filter, this is how i learned it mostly
+https://youtu.be/mwn8xhgNpFY?si=Kr47KwAlpJxSf0ss
+
+
