@@ -15,4 +15,19 @@ https://www.youtube.com/watch?v=BuPil7nXvMU
 the matlab course on the Kalman filter, this is how i learned it mostly
 https://youtu.be/mwn8xhgNpFY?si=Kr47KwAlpJxSf0ss
 
+hurst exponent
+https://youtu.be/IbfplwDAMik?si=2nerb_LUFbWB9Ntt
+
+dickey-feuller test
+https://youtu.be/beHFZa-t89A?si=bj2mbhCKaKNv67UO
+
+auto regressive models
+https://youtu.be/Mc6sBAUdDP4?si=WvjEnDasetUGMEX0
+
+stationarity
+https://youtu.be/aIdTGKjQWjA?si=3S8QpTUDRM16Qw9V
+
+random walks
+https://youtu.be/UpCNYhp20t4?si=00AKSX4VyjdRVJHm
+
 
