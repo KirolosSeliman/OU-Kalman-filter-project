@@ -146,7 +146,7 @@ def vb_akf(prices, Q_init, R_init, lambda_=0.98):
         Q_arr[t] = Q_k
         R_arr[t] = R_k
 
-    return x_hat, P, innovations, Q_arr, R_arr
+    return  x_hat, P, innovation, Q_arr, R_arr
 
 # ── 5. Run MLE then VB-AKF ───────────────────────────────────────────────────
 # ── Run MLE and VB-AKF per session ───────────────────────────────────────────
