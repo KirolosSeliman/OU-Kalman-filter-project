@@ -144,12 +144,16 @@ def split_sessions(combined):
 def run_pipeline(sessions, combined):
     results = []
     
+    if not sessions:
+        print("run_pipeline: no sessions provided, returning empty results.")
+        return results
+
     for i, session in enumerate(sessions):
         cutoff = session.index[0]
         hist = combined[combined.index < cutoff]
         
         if len(hist) < 50:
-            hist = combined
+            continue
         
         # Log-space OLS on historical data only
         log_gld_hist = np.log(hist["GLD"].values)
@@ -167,17 +171,17 @@ def run_pipeline(sessions, combined):
 
         z_score = (prices - x_hat) / np.sqrt(np.maximum(P, 1e-12))
         
-    results.append({
-    "datetime": session.index,
-    "spread": prices,
-    "x_hat": x_hat,
-    "P": P,
-    "p1": p1,
-    "p_all": p_all,      
-    "beta": beta_s,
-    "alpha": alpha_s,
-    "z_score": z_score
-    })
+        results.append({
+        "datetime": session.index,
+        "spread": prices,
+        "x_hat": x_hat,
+        "P": P,
+        "p1": p1,
+        "p_all": p_all,      
+        "beta": beta_s,
+        "alpha": alpha_s,
+        "z_score": z_score
+        })
     
     return results
 
@@ -196,7 +200,7 @@ def kelly_position(z_score, p1):
 
 def plot_session(session_idx=0):
     """Plot first session results with z-score trading signals."""
-    result = results[session_idx]
+    result = result[session_idx]
     z_score = result['z_score']  # ← Use precomputed
     time_idx = np.arange(len(z_score))
     
@@ -283,6 +287,7 @@ def ou_params_final(kalman_residuals_std):
 
 
 if __name__ == "__main__":
+    """
     combined = load_spread_data(period="5d", interval="1m")
     sessions = split_sessions(combined)
     results = run_pipeline(sessions, combined)
@@ -305,3 +310,5 @@ if __name__ == "__main__":
     print("PHASE 3 COMPLETE - ETF Defaults:")
     for k, v in ou_final.items():
         print(f"{k}: {v}")
+    """
+    pass

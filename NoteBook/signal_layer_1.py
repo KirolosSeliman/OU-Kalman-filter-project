@@ -1,237 +1,732 @@
+"""
+Phase 4–5: Signal, Risk, Execution, Adaptive Weights, and Walk-Forward
+
+This module assumes upstream pipeline provides, per session, a dict `result` with at least:
+    - 'spread' : np.ndarray, spread prices (GLD - beta*IAU) or similar
+    - 'x_hat'  : np.ndarray, Kalman/IMM combined estimate
+    - 'P'      : np.ndarray, Kalman error covariance
+    - 'p1'     : np.ndarray, mean-reverting regime probability (IMM)
+    - 'z_score': np.ndarray, (spread - x_hat)/sqrt(P)
+    - 'beta'   : float, hedge ratio
+    - 'GLD'    : np.ndarray, GLD prices
+    - 'IAU'    : np.ndarray, IAU prices
+
+Upstream functions expected (from your existing code):
+    from imm_filter import load_spread_data, split_sessions, run_pipeline, ou_params_final
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
-import yfinance as yf
+from scipy import stats
 import pandas as pd
-from scipy.optimize import minimize
+import yfinance as yf
+from imm_filter import load_spread_data, split_sessions, run_pipeline, ou_params_final  # adjust import if needed
 
-from estimate_ou import *
-from imm_filter import run_pipeline, load_spread_data, split_sessions, ou_params_final  # Your current file renamed
+from datetime import datetime, timedelta, timezone
+
+print("run_pipeline from module:", run_pipeline.__module__)
+
+def load_gld_iau_intraday_chunked(
+    days_back=60,
+    chunk_days=7,
+    interval="1m",
+    tz="America/New_York",
+):
+    """
+    Download GLD/IAU intraday data in chunks to respect Yahoo's 1m limit (~7-8 days).
+
+    Parameters
+    ----------
+    days_back : int
+        How many calendar days back from today.
+    chunk_days : int
+        Length of each chunk in days (<= 7 recommended for 1m).
+    """
+
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days_back)
+
+    all_chunks = []
+
+    cur_start = start
+    while cur_start < end:
+        cur_end = min(cur_start + timedelta(days=chunk_days), end)
+
+        data = yf.download(
+            tickers=["GLD", "IAU"],
+            start=cur_start,
+            end=cur_end,
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+
+        if not data.empty:
+            if isinstance(data.columns, pd.MultiIndex):
+                close = data["Close"].copy()
+                close = close.rename(columns={c: c for c in close.columns})
+            else:
+                # Single-ticker fallback (shouldn't happen here)
+                close = data[["Close"]].copy()
+                close.columns = ["GLD"]
+
+            all_chunks.append(close)
+
+        cur_start = cur_end
+
+    if not all_chunks:
+        print("load_gld_iau_intraday_chunked: no data downloaded.")
+        return pd.DataFrame()
+
+    combined = pd.concat(all_chunks).sort_index()
+    combined.index = pd.to_datetime(combined.index)
+
+    if combined.index.tz is None:
+        combined = combined.tz_localize("UTC").tz_convert(tz)
+    else:
+        combined = combined.tz_convert(tz)
+
+    # Regular US session only
+    combined = combined.between_time("09:30", "16:00")
+    combined = combined.dropna(subset=["GLD", "IAU"])
+
+    return combined
+
+def load_gld_iau_intraday(period="60d", interval="1m", tz="America/New_York"):
+    """
+    Download and concatenate GLD/IAU intraday data for up to `period` (max 60d for interval<1d).
+
+    Returns
+    -------
+    combined : pd.DataFrame
+        Columns: ['GLD', 'IAU'], index: timezone-aware DatetimeIndex (NY time),
+        filtered to regular session 09:30–16:00.
+    """
+    tickers = ["GLD", "IAU"]
+
+    data = yf.download(
+        tickers=tickers,
+        period=period,
+        interval=interval,
+        auto_adjust=True,
+        progress=False,
+        threads=True,
+    )
+
+    # Handle MultiIndex columns (ticker, field) → keep Close
+    if isinstance(data.columns, pd.MultiIndex):
+        close = data["Close"].copy()
+        close = close.rename(columns={c: c for c in close.columns})
+    else:
+        # Single ticker case fallback
+        close = data[["Close"]].copy()
+        close.columns = tickers[:1]
+
+    # Ensure timezone and regular session only
+    close.index = pd.to_datetime(close.index)
+    if close.index.tz is None:
+        close = close.tz_localize("UTC").tz_convert(tz)
+    else:
+        close = close.tz_convert(tz)
+
+    # Filter to regular US hours 09:30–16:00
+    close = close.between_time("09:30", "16:00")
+
+    # Drop rows where either leg is missing
+    combined = close.dropna(subset=["GLD", "IAU"])
+
+    return combined
+# --------------------------------------------------------------------------
+# Layer 1: Raw signal and validity factors
+# --------------------------------------------------------------------------
 
 def raw_signal(z_score, z_scale=2.0):
-    """Raw directional signal: -tanh(z/z_scale)."""
-    return -np.tanh(z_score / z_scale)
-
-if __name__ == "__main__":
-    # Load Kalman results
-    combined = load_spread_data()
-    sessions = split_sessions(combined)
-    results = run_pipeline(sessions, combined)
-    
-    # Test Layer 1 Step 1
-    z_test = results[0]['z_score']
-    raw_sig = raw_signal(z_test)
-    
-    print("Layer 1 Step 1 — RawSignal:")
-    print(f"z range: [{np.min(z_test):.2f}, {np.max(z_test):.2f}]")
-    print(f"RawSignal range: [{np.min(raw_sig):.3f}, {np.max(raw_sig):.3f}]")
-    print(f"Mean |RawSignal|: {np.mean(np.abs(raw_sig)):.3f}")
+    """
+    Raw directional signal: -tanh(z / z_scale).
+    Positive when price below mean (buy), negative when above (sell).
+    """
+    z_score = np.asarray(z_score, dtype=float)
+    return +np.tanh(z_score / z_scale)
 
 
-def layer1_validity_factors(kalman_result, p_max_factor=3.0):
-    """Layer 1 Steps 2-4: Gate, Filter, Regime factors."""
-    P = kalman_result['P']
-    p1 = kalman_result['p1']
-    
-    # Gate (placeholder)
-    gate_factor = np.ones_like(P)
-    
-    # Filter: max(0, 1 - P/P_max)
-    p_max = p_max_factor * np.median(P)
-    filter_factor = np.maximum(0, 1 - P / p_max)
-    
-    # Regime: IMM p1
-    regime_factor = p1
-    
-    return gate_factor, filter_factor, regime_factor
+def layer1_validity_factors(kalman_result, ou_params, p_max_factor=3.0, gate_open=True):
+    """
+    Layer 1 validity factors: Gate, Filter, Regime, Cost.
 
-def signal_score(z_score, validity_factors):
-    """Layer 1 complete: RawSignal × validity factors."""
-    raw_signal = -np.tanh(z_score / 2.0)
-    gate, filt, regime = validity_factors
-    return raw_signal * gate * filt * regime
+    GateFactor:   1 if stationarity gate open, else 0 (placeholder flag here).
+    FilterFactor: max(0, 1 - P / P_max), where P_max = p_max_factor * median(P).
+    RegimeFactor: p1 (mean-reverting regime probability).
+    CostFactor:   1 - tc / expected_edge, clipped at 0.
 
-# Test Layer 1 complete
-validity = layer1_validity_factors(results[0])
-signal_scores = signal_score(results[0]['z_score'], validity)
+    Returns
+    -------
+    gate_factor, filter_factor, regime_factor, cost_factor : np.ndarray
+    """
+    P = np.asarray(kalman_result["P"], dtype=float)
+    p1 = np.asarray(kalman_result["p1"], dtype=float)
+    z = np.asarray(kalman_result["z_score"], dtype=float)
 
-print("Layer 1 Complete — SignalScore:")
-print(f"RawSignal range: [{np.min(-np.tanh(results[0]['z_score']/2)):.3f}, {np.max(-np.tanh(results[0]['z_score']/2)):.3f}]")
-print(f"SignalScore range: [{np.min(signal_scores):.3f}, {np.max(signal_scores):.3f}]")
-print(f"Mean |SignalScore|: {np.mean(np.abs(signal_scores)):.3f}")
-print(f"FilterFactor mean: {np.mean(validity[1]):.3f}")
-print(f"RegimeFactor mean: {np.mean(validity[2]):.3f}")
+    # Gate: for now, a simple boolean flag applied to all bars.
+    gate_factor = np.ones_like(P) if gate_open else np.zeros_like(P)
+
+    # Filter: 0 when P very large, 1 when P small.
+    P_med = np.median(P)
+    P_max = p_max_factor * P_med
+    filter_factor = np.maximum(0.0, 1.0 - P / np.maximum(P_max, 1e-12))
+
+    # Regime: direct p1
+    regime_factor = np.clip(p1, 0.0, 1.0)
+
+    # Cost: based on OU parameters
+    cost_factor = compute_cost_factor(z, ou_params)
+
+    return gate_factor, filter_factor, regime_factor, cost_factor
+
 
 def compute_cost_factor(z_score, ou_params, tc_bps=5):
-    """Layer 1 Step 5: Transaction cost adjustment."""
-    kappa = ou_params['kappa']
-    hl_min = ou_params['half_life_min']
-    tc_decimal = tc_bps / 10000  # 5bps → 0.0005
-    
-    expected_edge = np.abs(z_score) * kappa * hl_min
-    cost_factor = np.maximum(0, 1 - tc_decimal / np.maximum(expected_edge, 1e-6))
+    """
+    Transaction cost adjustment.
+
+    expected_edge ∝ |z| * kappa * HL_min
+    CostFactor = max(0, 1 - tc / expected_edge)
+    """
+    z = np.asarray(z_score, dtype=float)
+    kappa = float(ou_params["kappa"])
+    hl_min = float(ou_params["half_life_min"])
+
+    tc_decimal = tc_bps / 10_000.0  # 5 bps -> 0.0005
+    expected_edge = np.abs(z) * kappa * hl_min
+    cost_factor = np.maximum(0.0, 1.0 - tc_decimal / np.maximum(expected_edge, 1e-6))
     return cost_factor
 
-# Complete Layer 1
-def layer1_complete(kalman_result, ou_params, p_max_factor=3.0):
-    """Full Layer 1 SignalScore."""
-    z_score = kalman_result['z_score']
-    
-    # Validity factors
-    P = kalman_result['P']
-    p1 = kalman_result['p1']
-    gate_factor = np.ones_like(P)
-    p_max = p_max_factor * np.median(P)
-    filter_factor = np.maximum(0, 1 - P / p_max)
-    regime_factor = p1
-    cost_factor = compute_cost_factor(z_score, ou_params)
-    
-    # Raw + factors
-    raw_signal = -np.tanh(z_score / 2.0)
-    signal_score = raw_signal * gate_factor * filter_factor * regime_factor * cost_factor
-    
-    return signal_score
 
-# Test
-ou_params = {'kappa': 0.04, 'half_life_min': 17.3}  # Your Phase 3
-final_signal = layer1_complete(results[0], ou_params)
+def layer1_complete(kalman_result, ou_params, p_max_factor=3.0, gate_open=True):
+    """
+    Full Layer 1 SignalScore: RawSignal * Gate * Filter * Regime * Cost.
+    """
+    z = np.asarray(kalman_result["z_score"], dtype=float)
+    raw = raw_signal(z, z_scale=2.0)
+    gate, filt, regime, cost = layer1_validity_factors(
+        kalman_result, ou_params, p_max_factor=p_max_factor, gate_open=gate_open
+    )
+    signal_score = raw * gate * filt * regime * cost
+    return signal_score, (gate, filt, regime, cost)
 
-print("Layer 1 FINAL — w/ CostFactor:")
-print(f"SignalScore range: [{np.min(final_signal):.3f}, {np.max(final_signal):.3f}]")
-print(f"Mean |SignalScore|: {np.mean(np.abs(final_signal)):.3f}")
-print(f"CostFactor mean: {np.mean(compute_cost_factor(results[0]['z_score'], ou_params)):.3f}")
 
-def layer2_target_position(signal_score, kalman_result, ou_params, risk_pct=0.02):
-    """Layer 2: SignalScore → TargetPosition % notional."""
-    z_score = kalman_result['z_score']
-    p1 = kalman_result['p1']
-    P = kalman_result['P']
-    
-    # 1. SizeScalar (fixed risk budget)
-    gld_level = np.mean(kalman_result['GLD']) if 'GLD' in kalman_result else 470
-    dollar_vol = 0.002 * gld_level  # 0.2% daily vol → $0.94 at GLD=$470
-    size_scalar = risk_pct / dollar_vol  # 2% / $0.94 ≈ 0.021
-    
+# --------------------------------------------------------------------------
+# Trade-level state: HL_entry and trade_age
+# --------------------------------------------------------------------------
+
+def build_entry_state(signal_scores, hl_series, entry_threshold=0.30):
+    """
+    Build trade-level HL_entry and trade_age from SignalScore and current HL.
+
+    Simple single-position logic:
+        - When flat and |SignalScore| >= entry_threshold -> enter.
+        - Direction = sign(SignalScore)
+        - HL_entry locked from hl_series at entry bar.
+        - trade_age increments each bar while in trade.
+        - Exit when SignalScore changes sign (direction conflict).
+    """
+    sig = np.asarray(signal_scores, dtype=float)
+    hl_series = np.asarray(hl_series, dtype=float)
+
+    N = len(sig)
+    hl_series[hl_series <= 0] = np.nan
+
+    hl_entry = np.zeros(N, dtype=float)
+    trade_age = np.zeros(N, dtype=float)
+    position_state = np.zeros(N, dtype=int)
+
+    in_trade = False
+    current_dir = 0
+    current_hl_entry = 0.0
+    current_age = 0
+
+    # Fallback HL if needed
+    hl_fallback = np.nanmedian(hl_series)
+    if not np.isfinite(hl_fallback):
+        hl_fallback = 20.0
+
+    for t in range(N):
+        s = sig[t]
+
+        if not in_trade:
+            if np.abs(s) >= entry_threshold:
+                in_trade = True
+                current_dir = 1 if s > 0 else -1
+                hl_t = hl_series[t]
+                if not np.isfinite(hl_t):
+                    hl_t = hl_fallback
+                current_hl_entry = max(hl_t, 1.0)
+                current_age = 0
+        else:
+            # Hard exit: signal conflict
+            if s * current_dir <= 0.0:
+                in_trade = False
+                current_dir = 0
+                current_hl_entry = 0.0
+                current_age = 0
+
+        if in_trade:
+            hl_entry[t] = current_hl_entry
+            trade_age[t] = current_age
+            position_state[t] = current_dir
+            current_age += 1
+        else:
+            hl_entry[t] = 0.0
+            trade_age[t] = 0.0
+            position_state[t] = 0
+
+    return hl_entry, trade_age, position_state
+
+
+# --------------------------------------------------------------------------
+# Adaptive Weight Estimator (RiskScore weights)
+# --------------------------------------------------------------------------
+
+class AdaptiveWeightEstimator:
+    """
+    Adaptive weights for 5 risk factors:
+
+        [ZRisk, RegimeRisk, FilterRisk, TimeRisk, HLJumpRisk]
+
+    Layer A: empirical Spearman correlation with adverse move.
+    Layer B: regime-conditional scaling.
+    Layer C: stability-based blend with prior weights.
+    """
+
+    def __init__(self, window=60, stability_min_obs=30, dampening=0.70):
+        self.window = window
+        self.stability_min_obs = stability_min_obs
+        self.dampening = dampening
+
+        # Prior weights (mean-reverting regime) from design doc
+        self.prior_weights = np.array([0.35, 0.15, 0.20, 0.20, 0.10], dtype=float)
+
+        # History buffers
+        self.factor_history = []   # list of 5-element vectors
+        self.outcome_history = []  # list of scalars
+
+        self.weights = self.prior_weights.copy()
+
+    def record_outcome(self, factors_t, outcome_t):
+        """
+        Record factor vector and realized adverse outcome.
+
+        factors_t : array-like of length 5
+        outcome_t : float
+        """
+        f = np.asarray(factors_t, dtype=float).ravel()
+        if f.shape[0] != 5:
+            raise ValueError("factors_t must have length 5")
+        self.factor_history.append(f)
+        self.outcome_history.append(float(outcome_t))
+
+        if len(self.factor_history) > self.window:
+            self.factor_history = self.factor_history[-self.window:]
+            self.outcome_history = self.outcome_history[-self.window:]
+
+    def update_weights(self, regime_score, adf_pvalue=None):
+        """
+        Update weights based on historical factor-outcome pairs and current regime.
+
+        regime_score : float in [0, 1]
+        adf_pvalue   : float or None
+        """
+        n = len(self.factor_history)
+        if n < self.stability_min_obs:
+            self.weights = self.prior_weights.copy()
+            return self.weights
+
+        X = np.vstack(self.factor_history)         # [n, 5]
+        y = np.asarray(self.outcome_history)       # [n]
+
+        # Layer A: Spearman |rho| per factor
+        layerA = np.zeros(5)
+        for i in range(5):
+            rho, _ = stats.spearmanr(X[:, i], y)
+            if not np.isfinite(rho):
+                rho = 0.0
+            layerA[i] = abs(rho)
+
+        if layerA.sum() > 0:
+            layerA /= layerA.sum()
+        else:
+            layerA[:] = 1.0 / 5.0
+
+        # Layer B: regime-conditional scaling
+        layerB = np.ones(5)
+        # ZRisk more important when regime is strongly mean-reverting and stationary
+        if regime_score >= 0.6 and (adf_pvalue is None or adf_pvalue < 0.05):
+            layerB[0] *= 1.3
+        # RegimeRisk more important when regime score is ambiguous
+        if 0.3 <= regime_score <= 0.7:
+            layerB[1] *= 1.3
+        # FilterRisk slightly emphasized always
+        layerB[2] *= 1.1
+        # TimeRisk more important when regime is stable
+        if regime_score >= 0.7:
+            layerB[3] *= 1.2
+        # HLJumpRisk more important when mean-reverting regime score is low
+        if regime_score <= 0.4:
+            layerB[4] *= 1.3
+
+        layerB /= layerB.sum()
+
+        est = layerA * layerB
+        if est.sum() > 0:
+            est /= est.sum()
+        else:
+            est = self.prior_weights.copy()
+
+        # Layer C: stability dampening
+        stability_factor = min(1.0, n / float(self.window))
+        blend = self.dampening * stability_factor
+
+        self.weights = (1.0 - blend) * self.prior_weights + blend * est
+        self.weights /= self.weights.sum()
+        return self.weights
+
+
+# --------------------------------------------------------------------------
+# Layer 2: Target Position (Mode B with full RiskScore)
+# --------------------------------------------------------------------------
+
+def layer2_target_position(
+    signal_score,
+    kalman_result,
+    ou_params,
+    mode="B",
+    risk_pct_fixed=0.02,
+    risk_pct_min=0.0075,
+    risk_pct_max=0.02,
+    p_max_factor=3.0,
+    hl_entry=None,
+    trade_age=None,
+    weights=None,
+):
+    """
+    Layer 2: SignalScore -> TargetPosition (fraction of notional).
+
+    Parameters
+    ----------
+    signal_score : np.ndarray
+        Layer 1 SignalScore, one-dimensional.
+    kalman_result : dict
+        Must contain 'z_score', 'p1', 'P', and 'GLD'.
+    ou_params : dict
+        Must contain 'kappa', 'half_life_min'.
+    mode : {"A","B"}
+        A: fixed risk, B: z-scaled risk.
+    weights : np.ndarray or None
+        5-element risk weights; if None, uses prior weights.
+
+    Returns
+    -------
+    target_position : np.ndarray
+    risk_score      : np.ndarray
+    factors         : np.ndarray, shape (N, 5)
+                      [ZRisk, RegimeRisk, FilterRisk, TimeRisk, HLJumpRisk]
+    """
+    z = np.asarray(kalman_result["z_score"], dtype=float)
+    p1 = np.asarray(kalman_result["p1"], dtype=float)
+    P = np.asarray(kalman_result["P"], dtype=float)
+    signal_score = np.asarray(signal_score, dtype=float)
+
+    N = len(z)
+
+    # 1. SizeScalar
+    if mode == "A":
+        gld_level = np.mean(kalman_result["GLD"]) if "GLD" in kalman_result else 470.0
+        dollar_vol = 0.002 * gld_level
+        size_scalar_val = risk_pct_fixed / max(dollar_vol, 1e-6)
+        size_scalar = np.full(N, size_scalar_val, dtype=float)
+    else:
+        # Mode B: risk % scales with |z|
+        z_abs = np.abs(z)
+        z_min, z_max = 1.5, 3.5
+        z_scaled = np.clip((z_abs - z_min) / (z_max - z_min), 0.0, 1.0)
+        risk_pct = risk_pct_min + z_scaled * (risk_pct_max - risk_pct_min)
+
+        gld_level = np.mean(kalman_result["GLD"]) if "GLD" in kalman_result else 470.0
+        dollar_vol = 0.002 * gld_level
+        size_scalar = risk_pct / max(dollar_vol, 1e-6)
+
     # 2. RiskScore components
-    z_risk = np.clip(np.abs(z_score) - 2.0, 0, 1)
-    regime_risk = np.clip(1 - p1, 0, 1)
-    filter_risk = np.clip(P / (3*np.median(P)), 0, 1)
-    time_risk = np.zeros_like(z_score)  # Placeholder (needs entry time)
-    hl_jump_risk = np.zeros_like(z_score)  # Placeholder
-    
-    weights = np.array([0.3, 0.2, 0.2, 0.2, 0.1])
-    risk_score = (weights @ np.array([z_risk, regime_risk, filter_risk, time_risk, hl_jump_risk]))
-    
-    # 3. TimeDecay (placeholder — full version needs entry tracking)
-    time_decay = np.ones_like(signal_score)
-    
-    # TargetPosition
-    target_position = (signal_score * size_scalar * 
-                      (1 - np.sqrt(np.clip(risk_score, 0, 1))) * time_decay)
-    
-    return target_position, risk_score
+    # ZRisk: 0 when |z| <=2, 1 when |z| >=3.5
+    z_risk = np.clip((np.abs(z) - 2.0) / (3.5 - 2.0), 0.0, 1.0)
 
-# Phase 3 (one line)
-ou_final = ou_params_final(np.std(results[0]['spread'] - results[0]['x_hat']))
+    # RegimeRisk: 0 when p1>=0.7, 1 when p1<=0
+    regime_risk = np.clip((0.7 - p1) / 0.7, 0.0, 1.0)
 
-target_pos, risk_scores = layer2_target_position(final_signal, results[0], ou_final)
-print("\nLayer 2 — TargetPosition:")
-print(f"TargetPosition range: [{np.min(target_pos)*100:.2f}%, {np.max(target_pos)*100:.2f}%]")
-print(f"Max |TargetPosition|: {np.max(np.abs(target_pos))*100:.1f}%")
-print(f"RiskScore mean: {np.mean(risk_scores):.3f}")
+    # FilterRisk: 0 at median(P), 1 at P_max = p_max_factor*median(P)
+    P_med = np.median(P)
+    P_max = p_max_factor * P_med
+    filter_risk = np.clip((P - P_med) / max(P_max - P_med, 1e-12), 0.0, 1.0)
 
+    # TimeRisk and HLJumpRisk need trade-level HL_entry and age
+    if hl_entry is None:
+        hl_entry_arr = np.full(N, ou_params["half_life_min"], dtype=float)
+    else:
+        hl_entry_arr = np.asarray(hl_entry, dtype=float)
+        hl_entry_arr[hl_entry_arr <= 0] = ou_params["half_life_min"]
+
+    if trade_age is None:
+        age = np.zeros(N, dtype=float)
+    else:
+        age = np.asarray(trade_age, dtype=float)
+        age[age < 0] = 0.0
+
+    time_risk = np.clip((age / (2.0 * hl_entry_arr)) ** 2, 0.0, 1.0)
+
+    if "half_life_bars" in kalman_result:
+        hl_current = np.asarray(kalman_result["half_life_bars"], dtype=float)
+        hl_current[hl_current <= 0] = hl_entry_arr
+    else:
+        hl_current = hl_entry_arr.copy()
+
+    hl_ratio = hl_current / np.maximum(hl_entry_arr, 1e-12)
+    hl_jump_risk = np.clip((hl_ratio - 1.0) / (3.0 - 1.0), 0.0, 1.0)
+
+    # Factors matrix
+    factors = np.column_stack([z_risk, regime_risk, filter_risk, time_risk, hl_jump_risk])
+
+    # Weights
+    if weights is None:
+        weights = np.array([0.35, 0.15, 0.20, 0.20, 0.10], dtype=float)
+
+    risk_score = np.clip(factors @ weights, 0.0, 1.0)
+
+    # 3. TimeDecay: linear to 0 at age = 3*HL_entry
+    time_decay = np.clip(1.0 - age / (3.0 * hl_entry_arr), 0.0, 1.0)
+
+    # 4. TargetPosition
+    position_scalar = 1.0 - np.sqrt(risk_score)
+    target_position = signal_score * size_scalar * position_scalar * time_decay
+
+    return target_position, risk_score, factors
+
+
+# --------------------------------------------------------------------------
+# Layer 3: Execution (single instrument, simple Δ-trading)
+# --------------------------------------------------------------------------
 
 def layer3_execution(target_position, current_position, min_delta=0.005):
-    """Layer 3: TargetPosition → orders."""
-    # Pad current_position to match target (starts at 0)
+    """
+    Translate TargetPosition into orders with an anti-whipsaw threshold.
+
+    Parameters
+    ----------
+    target_position : np.ndarray
+        Desired position per bar (fraction of notional).
+    current_position : np.ndarray
+        Actual position per bar.
+    min_delta : float
+        Minimum abs(delta) to execute.
+
+    Returns
+    -------
+    orders      : np.ndarray
+    new_position: np.ndarray
+    """
+    target_position = np.asarray(target_position, dtype=float)
+    current_position = np.asarray(current_position, dtype=float)
+
     current_pos_padded = np.zeros_like(target_position)
-    current_pos_padded[1:] = current_position[:-1]  # Shift forward
-    
-    delta = target_position - current_pos_padded  # Now both (390,)
-    
-    # Execute meaningful deltas
+    if len(current_position) > 0:
+        current_pos_padded[1:] = current_position[:-1]
+
+    delta = target_position - current_pos_padded
+
     execute_mask = np.abs(delta) > min_delta
     orders = np.zeros_like(delta)
     orders[execute_mask] = delta[execute_mask]
-    
-    # Update position
+
     new_position = current_pos_padded + orders
-    
     return orders, new_position
 
-# Test (pass zeros as initial position)
-current_pos = np.zeros_like(target_pos)
-orders, final_pos = layer3_execution(target_pos, current_pos, min_delta=0.005)
 
-print("\nLayer 3 — Execution:")
-print(f"Orders generated: {np.sum(orders != 0)}")
-print(f"Final position range: [{np.min(final_pos)*100:.2f}%, {np.max(final_pos)*100:.2f}%]")
-print(f"Max |order|: {np.max(np.abs(orders))*100:.2f}%")
-
+# --------------------------------------------------------------------------
+# PnL and Walk-forward (Phase 5)
+# --------------------------------------------------------------------------
 def proper_spread_pnl(session_data, target_position, beta):
-    """Correct GLD - β·IAU PnL in bps."""
-    gld_prices = session_data['GLD'] if hasattr(session_data['GLD'], 'values') else session_data['GLD']
-    iau_prices = session_data['IAU'] if hasattr(session_data['IAU'], 'values') else session_data['IAU']
-    
-    
-    gld_ret = np.diff(np.log(gld_prices))
-    iau_ret = np.diff(np.log(iau_prices))
-    spread_ret = gld_ret - beta * iau_ret  # Raw spread return
-    
-    # Position % GLD notional → bps PnL
-    pnl = target_position[1:] * spread_ret * 10000  # Convert to bps
+    """
+    GLD - beta * IAU PnL in bps, using lagged TargetPosition.
+    Signal at t earns return from t to t+1.
+    """
+    gld = np.asarray(session_data["GLD"], dtype=float)
+    iau = np.asarray(session_data["IAU"], dtype=float)
+
+    gld_ret = np.diff(np.log(gld))          # length N-1, return t-1 -> t
+    iau_ret = np.diff(np.log(iau))
+    spread_ret = gld_ret - beta * iau_ret
+
+    tp = np.asarray(target_position, dtype=float)
+
+    # Use position known after bar t-1 to earn return t-1 -> t
+    pnl = tp[:-1] * spread_ret * 10_000.0
     return pnl
 
-def phase5_walkforward_fixed(results, risk_pct=0.02):
-    """Phase 5: Full walk-forward w/ correct PnL."""
+
+def phase5_walkforward_full(results, sessions, risk_pct=0.02):
+    """
+    Phase 5: Full walk-forward using Phase 4 with adaptive weights.
+    """
+    print(f"phase5_walkforward_full: got {len(results)} results, {len(sessions)} sessions")
+
+    estimator = AdaptiveWeightEstimator(window=60, stability_min_obs=30, dampening=0.70)
+
     all_pnl = []
     session_sharpes = []
-    
+
     for i, result in enumerate(results):
-        # Store raw prices for PnL (add to result)
-        result['GLD'] = sessions[i]['GLD'].values
-        result['IAU'] = sessions[i]['IAU'].values
-        
-        ou_params = ou_params_final(np.std(result['spread'] - result['x_hat']))
-        
-        # Phase 4 pipeline
-        signal_scores = layer1_complete(result, ou_params)
-        target_pos, risk_scores = layer2_target_position(signal_scores, result, ou_params, risk_pct)
-        
-        # Proper PnL
-        beta = result['beta']
+        session = sessions[i]
+        result["GLD"] = session["GLD"].values
+        result["IAU"] = session["IAU"].values
+
+        # OU params from spread/Kalman residuals
+        spread = np.asarray(result["spread"], dtype=float)
+        x_hat = np.asarray(result["x_hat"], dtype=float)
+        ou_params = ou_params_final(np.std(spread - x_hat))
+
+        # Layer 1
+        signal_scores, _ = layer1_complete(result, ou_params, p_max_factor=3.0, gate_open=True)
+
+        # Trade state
+        hl_current = np.full_like(signal_scores, ou_params["half_life_min"], dtype=float)
+        hl_entry, trade_age, position_state = build_entry_state(
+            signal_scores, hl_current, entry_threshold=0.30
+        )
+
+        z = np.asarray(result["z_score"], dtype=float)
+        prices = spread
+
+        N = len(z)
+        target_pos = np.zeros(N, dtype=float)
+        risk_scores = np.zeros(N, dtype=float)
+
+        for t in range(N):
+            single_result = {
+                "z_score": z[t:t+1],
+                "p1": result["p1"][t:t+1],
+                "P": result["P"][t:t+1],
+                "GLD": result["GLD"][t:t+1],
+            }
+
+            tp_t, rs_t, factors_t = layer2_target_position(
+                signal_score=signal_scores[t:t+1],
+                kalman_result=single_result,
+                ou_params=ou_params,
+                mode="B",
+                risk_pct_fixed=risk_pct,
+                risk_pct_min=0.0075,
+                risk_pct_max=0.02,
+                p_max_factor=3.0,
+                hl_entry=hl_entry[t:t+1],
+                trade_age=trade_age[t:t+1],
+                weights=estimator.weights,
+            )
+
+            target_pos[t] = tp_t[0]
+            risk_scores[t] = rs_t[0]
+
+            if t > 0:
+                outcome = abs(prices[t] - prices[t-1])
+                estimator.record_outcome(factors_t[0], outcome)
+                _ = estimator.update_weights(regime_score=float(result["p1"][t]))
+
+        beta = float(result["beta"])
+
+        gld = np.asarray(result["GLD"], dtype=float)
+        iau = np.asarray(result["IAU"], dtype=float)
+        gld_ret = np.diff(np.log(gld))
+        iau_ret = np.diff(np.log(iau))
+        spread_ret = gld_ret - beta * iau_ret
+        corr = np.corrcoef(target_pos[:-1], spread_ret)[0, 1]
+        print(f"Session {i} corr(target_pos[:-1], spread_ret) = {corr:.4f}")
+
         pnl = proper_spread_pnl(result, target_pos, beta)
-        
+
         all_pnl.append(pnl)
-        sharpe = np.mean(pnl) / np.std(pnl) * np.sqrt(252 * 78 / 390) if np.std(pnl) > 0 else 0
-        session_sharpes.append(sharpe)
-        
-        print(f"Session {i}: PnL={pnl.sum():+.0f}bps, Sharpe={sharpe:.2f}")
-    
-    # Aggregate
+        sh = np.mean(pnl) / np.std(pnl) * np.sqrt(252 * 78 / 390) if np.std(pnl) > 0 else 0.0
+        session_sharpes.append(sh)
+        print(f"Session {i}: PnL={pnl.sum():+.0f} bps, Sharpe={sh:.2f}")
+
+        # Optional: debug plots for first session only
+        if i == 0:
+            fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+            axes[0].plot(spread, label="Spread", color="gray")
+            axes[0].plot(x_hat, label="x_hat", color="blue")
+            axes[0].fill_between(
+                np.arange(len(x_hat)),
+                x_hat - 2*np.sqrt(result["P"]),
+                x_hat + 2*np.sqrt(result["P"]),
+                alpha=0.2, color="blue", label="±2√P",
+            )
+            axes[0].legend(); axes[0].set_title("Spread & Kalman estimate")
+
+            axes[1].plot(result["z_score"], label="z", color="purple")
+            axes[1].plot(signal_scores, label="SignalScore", color="green")
+            axes[1].plot(target_pos, label="TargetPos", color="orange")
+            axes[1].legend(); axes[1].set_title("Signals & Target Position")
+
+            cum_pnl_0 = np.cumsum(np.concatenate([[0], pnl]))
+            axes[2].plot(cum_pnl_0, label="Cum PnL (bps)")
+            axes[2].legend(); axes[2].set_title("Cumulative PnL (session 0)")
+            plt.tight_layout()
+            plt.show()
+
+    # ---- aggregation AFTER the loop ----
+    if not all_pnl:
+        print("phase5_walkforward_full: no PnL arrays, nothing to aggregate.")
+        return np.array([]), []
+
     all_pnl_flat = np.concatenate(all_pnl)
-    total_sharpe = (np.mean(all_pnl_flat) / np.std(all_pnl_flat) * 
-                   np.sqrt(252 * 78)) if len(all_pnl_flat) > 0 and np.std(all_pnl_flat) > 0 else 0
-    
+
+    if len(all_pnl_flat) > 0 and np.std(all_pnl_flat) > 0:
+        total_sharpe = np.mean(all_pnl_flat) / np.std(all_pnl_flat) * np.sqrt(252 * 390)
+    else:
+        total_sharpe = 0.0
+
     print("\n=== PHASE 5 COMPLETE ===")
     print(f"Sessions: {len(results)}")
     print(f"Total PnL: {all_pnl_flat.sum():+.0f} bps")
     print(f"Total Sharpe: {total_sharpe:.2f}")
     print(f"Avg session Sharpe: {np.mean(session_sharpes):.2f}")
-    print(f"Win rate: {np.mean(np.sign(all_pnl_flat)):.1%}")
-    
+    win_rate = np.mean(all_pnl_flat > 0) if len(all_pnl_flat) > 0 else 0.0
+    print(f"Win rate: {win_rate:.1%}")
+    print(f"PnL bars: {len(all_pnl_flat)}, mean={np.mean(all_pnl_flat):.4f}, std={np.std(all_pnl_flat):.4f}")
+
+    if len(all_pnl_flat) > 0:
+        plt.figure(figsize=(12, 6))
+        cum_pnl = np.cumsum(np.concatenate([[0], all_pnl_flat]))
+        plt.plot(cum_pnl, linewidth=2)
+        plt.title("Phase 5: Walk-Forward Cumulative PnL (all sessions)")
+        plt.ylabel("Cumulative PnL (bps)")
+        plt.xlabel("1-min Bars")
+        plt.grid(True, alpha=0.3)
+        plt.show()
+
     return all_pnl_flat, session_sharpes
 
-# RUN PHASE 5 (add to __main__)
-pnl_series, sharpes = phase5_walkforward_fixed(results)
 
-# Plot cumulative PnL
-plt.figure(figsize=(12, 6))
-cum_pnl = np.cumsum(np.concatenate([[0], pnl_series]))
-plt.plot(cum_pnl, linewidth=2)
-plt.title('Phase 5: Walk-Forward Cumulative PnL')
-plt.ylabel('Cumulative PnL (bps)')
-plt.xlabel('1-min Bars')
-plt.grid(True, alpha=0.3)
-plt.show()
 
+# --------------------------------------------------------------------------
+# Main harness (use only when running this file directly)
+# --------------------------------------------------------------------------
+if __name__ == "__main__":
+    combined = load_gld_iau_intraday_chunked(days_back=60, chunk_days=7, interval="1m")
+    print(f"Combined shape: {combined.shape}")
+
+    sessions = split_sessions(combined)
+    print(f"split_sessions produced {len(sessions)} sessions")
+    print("First session length:", len(sessions[0]))
+    print("All session lengths:", [len(s) for s in sessions])
+
+    results = run_pipeline(sessions, combined)
+    print(f"run_pipeline produced {len(results)} results")
+
+    pnl_series, sharpes = phase5_walkforward_full(results, sessions, risk_pct=0.02)
 
