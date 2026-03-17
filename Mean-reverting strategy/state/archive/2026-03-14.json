@@ -1,0 +1,78 @@
+{
+  "spread": {
+    "beta": 1.000077312285921,
+    "alpha": 1.5852129684967442,
+    "sigma_spread_prior": 0.00012713622828720625,
+    "beta_valid": true,
+    "initialized": true,
+    "n_sessions_used": 19
+  },
+  "kalman": {
+    "models": [
+      {
+        "x_hat": -3.5587081486987415e-05,
+        "P": 5.983064550363305e-09,
+        "Q_k": 1.616362054309662e-09,
+        "R_k": 1.616362054309662e-08,
+        "alpha_R": 10.0,
+        "beta_R": 1.6163620543096622e-07,
+        "alpha_Q": 10.0,
+        "beta_Q": 1.616362054309662e-08
+      },
+      {
+        "x_hat": -3.5587081486987415e-05,
+        "P": 2.615328741998637e-08,
+        "Q_k": 1.616362054309662e-08,
+        "R_k": 1.616362054309662e-08,
+        "alpha_R": 10.0,
+        "beta_R": 1.6163620543096622e-07,
+        "alpha_Q": 10.0,
+        "beta_Q": 1.6163620543096622e-07
+      },
+      {
+        "x_hat": -3.5587081486987415e-05,
+        "P": 1.6934989853956233e-07,
+        "Q_k": 1.6163620543096622e-07,
+        "R_k": 8.08181027154831e-09,
+        "alpha_R": 10.0,
+        "beta_R": 8.081810271548311e-08,
+        "alpha_Q": 10.0,
+        "beta_Q": 1.6163620543096622e-06
+      }
+    ],
+    "probs": [
+      0.333,
+      0.333,
+      0.334
+    ],
+    "prev_x_hat": -3.5587081486987415e-05,
+    "bar_count": 0,
+    "Q_mle": 1e-08,
+    "R_mle": 1.1015546287786283e-08,
+    "initialized": true,
+    "innov_buffer": []
+  },
+  "station": {
+    "last_phi": NaN,
+    "last_mu": NaN,
+    "last_sigma_ou": NaN,
+    "last_hl_bars": NaN,
+    "ou_ever_valid": false
+  },
+  "risk": {
+    "obs_buf": [],
+    "pending": null
+  },
+  "exec": {
+    "current_position": 0,
+    "entry_spread": NaN,
+    "trade_age": -1,
+    "realized_pnl": 0.0,
+    "cooldown_until": -1,
+    "daily_loss_halted": false
+  },
+  "hl_entry": NaN,
+  "__schema_version__": "1.0.0",
+  "__session_date__": "2026-03-14",
+  "__saved_at__": "2026-03-15T00:46:37.094157Z"
+}

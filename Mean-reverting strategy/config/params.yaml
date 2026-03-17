@@ -1,0 +1,114 @@
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Kalman + OU Mean Reversion — Production Configuration
+# Authoritative parameter file. All values validated on load.
+# Do not modify during an active paper-trading session.
+# ─────────────────────────────────────────────────────────────────────────────
+
+meta:
+  version: "1.0.0"
+  instrument_universe: ["GLD", "IAU"]
+  bar_interval_minutes: 1
+  description: "GLD/IAU cointegrated spread, 1-min bars, paper trading"
+
+session:
+  open_time: "09:30"                  # ET, inclusive
+  close_time: "16:00"                 # ET, inclusive
+  force_flat_time: "15:55"            # ET, no new entries after this; exits only
+  warmup_bars: 60                     # bars before any trading is permitted
+  min_session_bars: 120               # sessions shorter than this are skipped entirely
+  timezone: "America/New_York"
+
+spread:
+  leg1: "GLD"
+  leg2: "IAU"
+  beta_window_sessions: 20            # number of prior sessions for OLS beta estimation
+  beta_min: 0.50                      # sanity bound; warn if outside but do not halt
+  beta_max: 2.00
+  sigma_spread_window_sessions: 5    # prior sessions for sigma_spread used in IMM scaling
+  log_prices: true                    # spread uses log prices; false = level prices
+
+kalman:
+  mle_warmup_bars: 60                 # bars needed for MLE initialization
+  vb_lambda: 0.98                     # exponential forgetting in VB hyperparameter update
+  alpha_prior: 10.0                   # initial concentration for Inv-Gamma prior on Q, R
+  outlier_sigma_threshold: 4.0        # cap |innovation| at N * sigma_recent for VB update
+  outlier_lookback: 20                # bars for rolling sigma_recent in outlier detection
+  P_init_multiplier: 1.0              # P[0] = P_init_multiplier * P_ss (steady state)
+
+imm:
+  n_models: 3
+  model_names: ["mean_reverting", "transitional", "trending"]
+  # Q_i = Q_factors[i] * sigma_spread_prior^2
+  Q_factors: [0.1, 1.0, 10.0]
+  # R_i = R_factors[i] * sigma_spread_prior^2
+  R_factors: [1.0, 1.0, 0.5]
+  initial_probs: [0.333, 0.333, 0.334]  # must sum to 1.0
+  prob_floor: 1.0e-6                  # minimum probability per model to prevent collapse
+
+ou:
+  window: 60                          # rolling OLS window in bars
+  phi_min: 0.30                       # reject if phi <= phi_min (insufficient mean reversion)
+  phi_max: 0.9990                     # reject if phi >= phi_max (near random walk)
+  hl_min_bars: 2.0                    # reject if HL < this
+  hl_max_bars: 30.0                   # reject if HL > this (reversion too slow to be actionable)
+
+stationarity:
+  adf_pvalue_threshold: 0.05          # ADF p-value must be below this for gate OPEN
+  hurst_threshold: 0.45               # Hurst must be below this for gate OPEN
+  hurst_trending_exit: 0.55           # Hurst above this: hard exit signal while in trade
+  window: 60                          # rolling window for ADF and Hurst computation
+  hurst_method: "ac1_diff"            # lagged
+
+signal:
+  z_scale: 2.0                        # tanh scaling: Raw = -tanh(z / z_scale)
+  entry_threshold: 0.30               # minimum |SignalScore| to allow entry
+  hard_exit_z: 3.5                    # |z| above this: hard exit, bypasses all layers
+  P_max: 0.005                        # fixed ceiling for FilterFactor computation
+                                      # NOT recomputed from session data — this is intentional
+
+risk:
+  # Risk factor onset/saturation levels
+  z_risk_onset: 2.0                   # ZRisk = 0 when |z| <= this
+  z_risk_full: 3.5                    # ZRisk = 1 when |z| >= this
+  regime_risk_onset: 0.30             # RegimeRisk saturates when IMM_score <= this
+  time_risk_hl_multiplier: 2.0        # TimeRisk = 1 at (multiplier * HL_entry) bars
+  hl_jump_risk_multiplier: 2.0        # HLJumpRisk saturates when HL doubles from entry
+  # Adaptive weight estimator
+  adaptive_window: 60                 # rolling observation window for Layer A
+  stability_min_obs: 30               # below this count, use prior weights only
+  dampening: 0.70                     # max blend toward estimated weights
+  regime_sensitivity: 1.0             # Layer B multiplier aggressiveness scalar
+  # Prior weights [ZRisk, RegimeRisk, FilterRisk, TimeRisk, HLJumpRisk]
+  prior_weights_mean_reverting:  [0.35, 0.15, 0.20, 0.20, 0.10]
+  prior_weights_transitional:    [0.20, 0.30, 0.30, 0.10, 0.10]
+  prior_weights_trending:        [0.15, 0.35, 0.15, 0.10, 0.25]
+
+sizing:
+  mode: "B"                           # "A" = fixed risk_pct; "B" = z-score scaled
+  risk_pct_fixed: 0.0150              # Mode A: fixed fraction of account per trade
+  risk_pct_min: 0.0075                # Mode B: minimum risk fraction
+  risk_pct_max: 0.0200                # Mode B: maximum risk fraction
+  account_size: 100000.0              # paper account size in USD
+  portfolio_heat_limit: 0.05          # total open risk as fraction of account
+  position_cap_pct: 0.10              # maximum position in single pair as fraction of account
+
+execution:
+  min_delta_threshold: 0.10           # minimum |TargetPosition - CurrentPosition| to trade
+  tc_bps: 5.0                         # round-trip transaction cost in basis points
+  slippage_ticks: 1                   # ticks of slippage per leg in paper broker fill
+  tick_size: 0.01                     # USD per share
+  partial_exit_mode: "A"              # "A" = target-zero only; "B" = half-life partial
+  partial_exit_gap_threshold: 0.30    # Mode B: close 50% when gap closed >= 30%
+
+session_risk:
+  daily_loss_limit_pct: 0.02          # circuit breaker: halt trading if session loss > 2% of account
+  cooldown_bars_after_stop: 10        # bars to wait after hard stop before re-entry permitted
+  stronger_signal_threshold: 0.70     # minimum |SignalScore| during cooldown to re-enter
+
+logging:
+  session_log_dir: "logs"
+  trade_log_dir: "logs/trades"
+  state_dir: "state"
+  log_level: "INFO"
+  log_every_bar: true                 # if false, only log on order events (not recommended for paper)

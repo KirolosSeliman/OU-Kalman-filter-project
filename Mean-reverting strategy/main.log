@@ -1,0 +1,141 @@
+2026-03-14 20:35:06,228 | INFO     | __main__ | Loading config from config/params.yaml
+2026-03-14 20:35:06,237 | INFO     | __main__ | System config loaded | account_size=100,000 | mode=B | dry_run=True
+2026-03-14 20:35:06,237 | INFO     | __main__ | DRY RUN MODE — no orders will be submitted to broker.
+2026-03-14 20:35:06,237 | INFO     | __main__ | =================================================================
+2026-03-14 20:35:06,237 | INFO     | __main__ | SESSION START | 2026-03-14 | dry_run=True
+2026-03-14 20:35:06,238 | INFO     | __main__ | =================================================================
+2026-03-14 20:35:06,239 | INFO     | __main__ | Waiting for pre-market fetch at 09:15 ET ...
+2026-03-14 20:35:06,239 | INFO     | __main__ | Fetching prior OHLC data ...
+2026-03-14 20:35:06,240 | ERROR    | __main__ | DataFeed returned empty prior_ohlc. Cannot initialize SpreadEngine. Aborting session.
+2026-03-14 20:39:08,212 | INFO     | __main__ | Loading config from config/params.yaml
+2026-03-14 20:39:08,221 | INFO     | __main__ | System config loaded | account_size=100,000 | mode=B | dry_run=True
+2026-03-14 20:39:08,221 | INFO     | __main__ | DRY RUN MODE — no orders will be submitted to broker.
+2026-03-14 20:39:08,221 | INFO     | __main__ | =================================================================
+2026-03-14 20:39:08,221 | INFO     | __main__ | SESSION START | 2026-03-14 | dry_run=True
+2026-03-14 20:39:08,221 | INFO     | __main__ | =================================================================
+2026-03-14 20:39:08,223 | INFO     | __main__ | Waiting for pre-market fetch at 09:15 ET ...
+2026-03-14 20:39:08,223 | INFO     | __main__ | Fetching prior OHLC data ...
+2026-03-14 20:39:09,965 | ERROR    | yfinance | $GLD: possibly delisted; no price data found  (period=55d) (Yahoo error = "1m data not available for startTime=1768783148 and endTime=1773535148. Only 8 days worth of 1m granularity data are allowed to be fetched per request.")
+2026-03-14 20:39:09,966 | ERROR    | yfinance | $IAU: possibly delisted; no price data found  (period=55d) (Yahoo error = "1m data not available for startTime=1768783148 and endTime=1773535148. Only 8 days worth of 1m granularity data are allowed to be fetched per request.")
+2026-03-14 20:39:09,968 | ERROR    | yfinance | 
+2 Failed downloads:
+2026-03-14 20:39:09,968 | ERROR    | yfinance | ['GLD', 'IAU']: possibly delisted; no price data found  (period=55d) (Yahoo error = "1m data not available for startTime=1768783148 and endTime=1773535148. Only 8 days worth of 1m granularity data are allowed to be fetched per request.")
+2026-03-14 20:39:09,989 | ERROR    | __main__ | DataFeed returned empty prior_ohlc. Cannot initialize SpreadEngine. Aborting session.
+2026-03-14 20:44:09,573 | INFO     | __main__ | Loading config from config/params.yaml
+2026-03-14 20:44:09,581 | INFO     | __main__ | System config loaded | account_size=100,000 | mode=B | dry_run=True
+2026-03-14 20:44:09,581 | INFO     | __main__ | DRY RUN MODE — no orders will be submitted to broker.
+2026-03-14 20:44:09,581 | INFO     | __main__ | =================================================================
+2026-03-14 20:44:09,581 | INFO     | __main__ | SESSION START | 2026-03-14 | dry_run=True
+2026-03-14 20:44:09,581 | INFO     | __main__ | =================================================================
+2026-03-14 20:44:09,582 | INFO     | __main__ | Waiting for pre-market fetch at 09:15 ET ...
+2026-03-14 20:44:09,582 | INFO     | __main__ | Fetching prior OHLC data ...
+2026-03-14 20:44:11,721 | ERROR    | yfinance | $GLD: possibly delisted; no price data found  (1m 2026-02-08 -> 2026-02-15) (Yahoo error = "1m data not available for startTime=1770526800 and endTime=1771131600. The requested range must be within the last 30 days.")
+2026-03-14 20:44:11,722 | ERROR    | yfinance | $IAU: possibly delisted; no price data found  (1m 2026-02-08 -> 2026-02-15) (Yahoo error = "1m data not available for startTime=1770526800 and endTime=1771131600. The requested range must be within the last 30 days.")
+2026-03-14 20:44:11,727 | ERROR    | yfinance | 
+2 Failed downloads:
+2026-03-14 20:44:11,727 | ERROR    | yfinance | ['GLD', 'IAU']: possibly delisted; no price data found  (1m 2026-02-08 -> 2026-02-15) (Yahoo error = "1m data not available for startTime=1770526800 and endTime=1771131600. The requested range must be within the last 30 days.")
+2026-03-14 20:44:11,744 | INFO     | __main__ | DataFeed: fetched 7410 bars across 30 calendar days (GLD/IAU)
+2026-03-14 20:44:11,753 | INFO     | model.spread_engine | SpreadEngine initialized | sessions_used=19 | beta=1.00008 | alpha=1.58521 | sigma_spread_prior=0.000127 | beta_valid=True
+2026-03-14 20:44:11,827 | INFO     | state.state_manager | StateManager: no latest.json found. Cold start — all engines initialize from scratch.
+2026-03-14 20:44:11,827 | INFO     | __main__ | No prior state found — cold start.
+2026-03-14 20:44:11,837 | INFO     | model.spread_engine | SpreadEngine initialized | sessions_used=19 | beta=1.00008 | alpha=1.58521 | sigma_spread_prior=0.000127 | beta_valid=True
+2026-03-14 20:44:11,841 | INFO     | model.kalman_imm_engine | KalmanIMMEngine MLE init | Q_mle=1.00e-08 | R_mle=1.10e-08
+2026-03-14 20:44:11,842 | INFO     | model.kalman_imm_engine | KalmanIMMEngine initialized | sigma_spread=0.000127 | models=3 | Q_factors=[0.1, 1.0, 10.0] | R_factors=[1.0, 1.0, 0.5] | initial_probs=[np.float64(0.333), np.float64(0.333), np.float64(0.334)]
+2026-03-14 20:44:11,842 | INFO     | model.stationarity_ou_engine | StationarityOUEngine: session buffer cleared (OU params preserved).
+2026-03-14 20:44:11,842 | INFO     | execution.execution_engine | ExecutionEngine: session reset — flat, PnL cleared.
+2026-03-14 20:44:11,842 | INFO     | pipeline_runner | PipelineRunner: session opened.
+2026-03-14 20:44:11,843 | INFO     | trade_log.session_logger | SessionLogger: opened → logs\sessions\sessions\2026-03-14.csv (70 columns)
+2026-03-14 20:44:11,843 | INFO     | __main__ | Waiting for session open at 09:30 ET ...
+2026-03-14 20:44:11,843 | INFO     | __main__ | Session open. Starting bar loop.
+2026-03-14 20:44:11,843 | INFO     | __main__ | Session close time reached. Exiting bar loop.
+2026-03-14 20:44:11,843 | INFO     | __main__ | Session close: bars_processed=0
+2026-03-14 20:44:11,844 | INFO     | pipeline_runner | PipelineRunner: session closed | bars=0 | hl_entry=nan
+2026-03-14 20:44:11,845 | INFO     | state.state_manager | StateManager: snapshot saved → state\latest.json
+2026-03-14 20:44:11,846 | INFO     | state.state_manager | StateManager: archived → state\archive\2026-03-14.json
+2026-03-14 20:44:11,849 | INFO     | trade_log.session_logger | SessionLogger: session closed | bars_written=0 | copied to logs\sessions\latest.csv
+2026-03-14 20:46:34,711 | INFO     | __main__ | Loading config from config/params.yaml
+2026-03-14 20:46:34,721 | INFO     | __main__ | System config loaded | account_size=100,000 | mode=B | dry_run=True
+2026-03-14 20:46:34,721 | INFO     | __main__ | DRY RUN MODE — no orders will be submitted to broker.
+2026-03-14 20:46:34,721 | INFO     | __main__ | =================================================================
+2026-03-14 20:46:34,721 | INFO     | __main__ | SESSION START | 2026-03-14 | dry_run=True
+2026-03-14 20:46:34,721 | INFO     | __main__ | =================================================================
+2026-03-14 20:46:34,723 | INFO     | __main__ | Waiting for pre-market fetch at 09:15 ET ...
+2026-03-14 20:46:34,723 | INFO     | __main__ | Fetching prior OHLC data ...
+2026-03-14 20:46:36,992 | INFO     | __main__ | DataFeed: fetched 7410 bars across 30 calendar days (GLD/IAU)
+2026-03-14 20:46:37,001 | INFO     | model.spread_engine | SpreadEngine initialized | sessions_used=19 | beta=1.00008 | alpha=1.58521 | sigma_spread_prior=0.000127 | beta_valid=True
+2026-03-14 20:46:37,077 | INFO     | state.state_manager | StateManager: loaded snapshot from session 2026-03-14.
+2026-03-14 20:46:37,077 | INFO     | __main__ | Prior state loaded successfully.
+2026-03-14 20:46:37,086 | INFO     | model.spread_engine | SpreadEngine initialized | sessions_used=19 | beta=1.00008 | alpha=1.58521 | sigma_spread_prior=0.000127 | beta_valid=True
+2026-03-14 20:46:37,091 | INFO     | model.kalman_imm_engine | KalmanIMMEngine MLE init | Q_mle=1.00e-08 | R_mle=1.10e-08
+2026-03-14 20:46:37,091 | INFO     | model.kalman_imm_engine | KalmanIMMEngine initialized | sigma_spread=0.000127 | models=3 | Q_factors=[0.1, 1.0, 10.0] | R_factors=[1.0, 1.0, 0.5] | initial_probs=[np.float64(0.333), np.float64(0.333), np.float64(0.334)]
+2026-03-14 20:46:37,092 | INFO     | model.stationarity_ou_engine | StationarityOUEngine: session buffer cleared (OU params preserved).
+2026-03-14 20:46:37,092 | INFO     | execution.execution_engine | ExecutionEngine: session reset — flat, PnL cleared.
+2026-03-14 20:46:37,092 | INFO     | model.stationarity_ou_engine | StationarityOUEngine state restored | last_hl_bars=nan | ou_ever_valid=False
+2026-03-14 20:46:37,092 | INFO     | risk.risk_score | RiskScoreEngine state restored | n_obs=0
+2026-03-14 20:46:37,092 | INFO     | pipeline_runner | PipelineRunner: session opened.
+2026-03-14 20:46:37,093 | INFO     | trade_log.session_logger | SessionLogger: opened → logs\sessions\2026-03-14.csv (70 columns)
+2026-03-14 20:46:37,093 | INFO     | __main__ | Waiting for session open at 09:30 ET ...
+2026-03-14 20:46:37,093 | INFO     | __main__ | Session open. Starting bar loop.
+2026-03-14 20:46:37,093 | INFO     | __main__ | Session close time reached. Exiting bar loop.
+2026-03-14 20:46:37,093 | INFO     | __main__ | Session close: bars_processed=0
+2026-03-14 20:46:37,094 | INFO     | pipeline_runner | PipelineRunner: session closed | bars=0 | hl_entry=nan
+2026-03-14 20:46:37,095 | INFO     | state.state_manager | StateManager: snapshot saved → state\latest.json
+2026-03-14 20:46:37,096 | INFO     | state.state_manager | StateManager: archived → state\archive\2026-03-14.json
+2026-03-14 20:46:37,098 | INFO     | trade_log.session_logger | SessionLogger: session closed | bars_written=0 | copied to logs\latest.csv
+2026-03-15 10:20:43,480 | INFO     | __main__ | Loading config from config/params.yaml
+2026-03-15 10:20:43,497 | INFO     | __main__ | System config loaded | account_size=100,000 | mode=B | dry_run=True
+2026-03-15 10:20:43,497 | INFO     | __main__ | DRY RUN MODE — no orders will be submitted to broker.
+2026-03-15 10:20:43,497 | INFO     | __main__ | =================================================================
+2026-03-15 10:20:43,497 | INFO     | __main__ | SESSION START | 2026-03-15 | dry_run=True
+2026-03-15 10:20:43,497 | INFO     | __main__ | =================================================================
+2026-03-15 10:20:43,509 | INFO     | __main__ | Waiting for pre-market fetch at 09:15 ET ...
+2026-03-15 10:20:43,509 | INFO     | __main__ | Fetching prior OHLC data ...
+2026-03-15 10:20:45,613 | INFO     | __main__ | DataFeed: fetched 10948 bars of prior OHLC (GLD/IAU) via Alpaca
+2026-03-15 10:20:45,652 | INFO     | model.spread_engine | SpreadEngine initialized | sessions_used=20 | beta=0.99996 | alpha=1.58576 | sigma_spread_prior=0.000129 | beta_valid=True
+2026-03-15 10:20:45,774 | INFO     | state.state_manager | StateManager: loaded snapshot from session 2026-03-14.
+2026-03-15 10:20:45,774 | INFO     | __main__ | Prior state loaded successfully.
+2026-03-15 10:20:45,804 | INFO     | model.spread_engine | SpreadEngine initialized | sessions_used=20 | beta=0.99996 | alpha=1.58576 | sigma_spread_prior=0.000129 | beta_valid=True
+2026-03-15 10:20:45,815 | INFO     | model.kalman_imm_engine | KalmanIMMEngine MLE init | Q_mle=1.00e-08 | R_mle=1.17e-08
+2026-03-15 10:20:45,815 | INFO     | model.kalman_imm_engine | KalmanIMMEngine initialized | sigma_spread=0.000129 | models=3 | Q_factors=[0.1, 1.0, 10.0] | R_factors=[1.0, 1.0, 0.5] | initial_probs=[np.float64(0.333), np.float64(0.333), np.float64(0.334)]
+2026-03-15 10:20:45,815 | INFO     | model.stationarity_ou_engine | StationarityOUEngine: session buffer cleared (OU params preserved).
+2026-03-15 10:20:45,816 | INFO     | execution.execution_engine | ExecutionEngine: session reset — flat, PnL cleared.
+2026-03-15 10:20:45,817 | INFO     | model.stationarity_ou_engine | StationarityOUEngine state restored | last_hl_bars=nan | ou_ever_valid=False
+2026-03-15 10:20:45,817 | INFO     | risk.risk_score | RiskScoreEngine state restored | n_obs=0
+2026-03-15 10:20:45,817 | INFO     | pipeline_runner | PipelineRunner: session opened.
+2026-03-15 10:20:45,818 | INFO     | trade_log.session_logger | SessionLogger: opened → logs\sessions\2026-03-15.csv (70 columns)
+2026-03-15 10:20:45,819 | INFO     | __main__ | Waiting for session open at 09:30 ET ...
+2026-03-15 10:20:45,819 | INFO     | __main__ | Session open. Starting bar loop.
+2026-03-15 10:20:45,856 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:20:45,857 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:21:45,907 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:21:45,907 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:22:45,947 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:22:45,947 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:23:45,988 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:23:45,989 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:24:46,027 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:24:46,028 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:30:27,007 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:30:27,007 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:31:27,044 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:31:27,044 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:32:27,080 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:32:27,080 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:33:27,137 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:33:27,138 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:34:27,185 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:34:27,185 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:35:27,242 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:35:27,243 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:36:27,307 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:36:27,308 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:37:27,430 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:37:27,430 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:38:27,495 | ERROR    | __main__ | DataFeed.get_latest_bar failed: 'symbol'
+2026-03-15 10:38:27,495 | WARNING  | __main__ | Bar 0: DataFeed returned None. Skipping bar.
+2026-03-15 10:39:01,368 | INFO     | __main__ | KeyboardInterrupt received. Closing session gracefully.
+2026-03-15 10:39:01,369 | INFO     | __main__ | Session close: bars_processed=0
+2026-03-15 10:39:01,369 | INFO     | pipeline_runner | PipelineRunner: session closed | bars=0 | hl_entry=nan
+2026-03-15 10:39:01,372 | INFO     | state.state_manager | StateManager: snapshot saved → state\latest.json
+2026-03-15 10:39:01,374 | INFO     | state.state_manager | StateManager: archived → state\archive\2026-03-15.json
+2026-03-15 10:39:01,378 | INFO     | trade_log.session_logger | SessionLogger: session closed | bars_written=0 | copied to logs\latest.csv
